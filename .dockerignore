@@ -1,0 +1,5 @@
+.git
+.vscode
+out
+data/*.ser
+data/users/
