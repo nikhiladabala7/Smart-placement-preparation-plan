@@ -79,7 +79,6 @@ The project report lists five students and five registration numbers. The respon
 | Siva Manikanta | AP25110010987 | Account storage, tracker persistence and storage error handling |
 | Aslam Pasha | AP25110011013 | Page styling, responsive layout, navigation and documentation/demo flow |
 
-The project coordinator is the student team leader and should be one of the five listed members. Prakash Ankur is the instructor, not the project coordinator. Confirm which team member is serving as coordinator and list that person accurately on the registration sheet.
 
 ## Scope note
 
