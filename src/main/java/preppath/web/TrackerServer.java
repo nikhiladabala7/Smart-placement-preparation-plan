@@ -2,6 +2,7 @@ package preppath.web;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import preppath.agent.StudyAgent;
 import preppath.auth.AuthService;
 import preppath.data.FileTrackerRepository;
 import preppath.data.TrackerRepository;
@@ -189,6 +190,7 @@ public class TrackerServer {
                 case "/tasks" -> send(exchange, 200, tasksPage(repository, notice));
                 case "/goals" -> send(exchange, 200, goalsPage(repository, notice));
                 case "/practice" -> send(exchange, 200, practicePage(repository, notice));
+                case "/agent" -> send(exchange, 200, agentPage(repository, notice));
                 default -> send(exchange, 404, page("Page not found", "", "That page is not part of PrepPath."));
             }
         } catch (IllegalArgumentException exception) {
@@ -269,6 +271,17 @@ public class TrackerServer {
                 String notes = clean(form.getOrDefault("notes", ""), 180);
                 repository.addPracticeRecord(title, category, score, date, notes);
                 redirect(exchange, "/practice", "Practice session saved.");
+            }
+            case "/actions/agent/add" -> {
+                String title = required(form, "title", "Choose a suggested task to add.", 100);
+                String category = category(form.get("category"));
+                LocalDate dueDate = date(form, "dueDate", "Choose a target date for this task.");
+                int goalId = integer(form.getOrDefault("goalId", "0"), "Choose a valid goal.");
+                if (goalId != 0 && repository.getGoals().stream().noneMatch(goal -> goal.getId() == goalId)) {
+                    throw new IllegalArgumentException("That goal is no longer available. Refresh and choose another.");
+                }
+                repository.addTask(goalId, title, category, dueDate);
+                redirect(exchange, "/agent", "Approved suggestion added to your study plan.");
             }
             default -> send(exchange, 404, page("Action not found", "", "This form action is not part of PrepPath."));
         }
@@ -359,6 +372,50 @@ public class TrackerServer {
         return page("Practice log", body.toString(), notice);
     }
 
+    /**
+     * Builds a personal plan by asking the Java agent to review this account's goals,
+     * open tasks, and practice scores. Suggestions are saved only through explicit form actions.
+     */
+    private String agentPage(TrackerRepository repository, String notice) {
+        StudyAgent.StudyPlan plan = new StudyAgent().createPlan(
+                repository.getGoals(), repository.getTasks(), repository.getPracticeRecords());
+
+        StringBuilder body = new StringBuilder("<div class='page-intro'><div><div class='eyebrow'>A JAVA-POWERED PLANNING ASSISTANT</div><h1>Study Agent</h1><p>Review your preparation and choose the next small steps that fit your plan.</p></div><span class='page-icon mint'>✳</span></div>");
+        body.append("<section class='agent-summary panel'><div class='agent-symbol' aria-hidden='true'>✳</div><div><div class='eyebrow'>HOW YOUR PLAN WAS MADE</div><p>")
+                .append(escape(plan.summary()))
+                .append("</p><small>This agent uses explainable Java rules. It suggests actions; you decide what to add.</small></div></section>");
+
+        if (!plan.focusTasks().isEmpty()) {
+            body.append("<section class='panel agent-focus'><div class='eyebrow'>FINISH CURRENT WORK FIRST</div><h2>Pick up one of these open tasks</h2><div class='agent-focus-list'>");
+            for (StudyTask task : plan.focusTasks()) {
+                body.append("<article><span class='focus-dot'></span><div><strong>").append(escape(task.getTitle()))
+                        .append("</strong><small>").append(escape(task.getCategory())).append(" · ").append(dateLabel(task.getDueDate()))
+                        .append("</small></div></article>");
+            }
+            body.append("</div><a class='text-link' href='/tasks'>Review all tasks →</a></section>");
+        } else if (!plan.suggestions().isEmpty()) {
+            body.append("<section class='agent-suggestions'><div class='section-heading'><div><div class='eyebrow'>SUGGESTED NEXT STEPS</div><h2>Choose what to add</h2></div><span class='agent-count'>")
+                    .append(plan.suggestions().size()).append(" suggestions</span></div><div class='suggestion-grid'>");
+            for (StudyAgent.Suggestion suggestion : plan.suggestions()) {
+                body.append("<article class='suggestion-card panel'><div class='suggestion-top'><span class='suggestion-category'>")
+                        .append(escape(suggestion.category())).append("</span><span class='suggestion-index'>NEXT STEP</span></div><h3>")
+                        .append(escape(suggestion.title())).append("</h3><p>").append(escape(suggestion.reason()))
+                        .append("</p><div class='suggestion-date'>Target date <strong>").append(dateLabel(suggestion.dueDate()))
+                        .append("</strong></div><form method='post' action='/actions/agent/add'><input type='hidden' name='title' value='")
+                        .append(escape(suggestion.title())).append("'><input type='hidden' name='category' value='")
+                        .append(escape(suggestion.category())).append("'><input type='hidden' name='dueDate' value='")
+                        .append(suggestion.dueDate()).append("'><input type='hidden' name='goalId' value='")
+                        .append(suggestion.goalId()).append("'><button class='button button-primary full-button' type='submit'>Add to my plan <span aria-hidden='true'>→</span></button></form></article>");
+            }
+            body.append("</div></section>");
+        } else {
+            body.append(empty("Your plan is in a good place", "Add a goal or log a practice score to help the agent suggest a useful next step.", "/goals", "Review your goals"));
+        }
+
+        body.append("<section class='agent-method panel'><div><div class='eyebrow'>A SIMPLE DECISION PROCESS</div><h2>Observe · Plan · Ask · Act</h2></div><p>The agent checks open work first, then reviews practice averages by category. It explains each suggestion and waits for you to add it.</p></section>");
+        return page("Study Agent", body.toString(), notice);
+    }
+
     /** Renders task rows; the full task page can also show a delete control. */
     private String taskRows(List<StudyTask> tasks, boolean showActions) {
         StringBuilder html = new StringBuilder("<div class='task-list'>");
@@ -403,7 +460,7 @@ public class TrackerServer {
     /** Wraps page content in the shared navigation, header, notice, and footer. */
     private String page(String title, String body, String notice) {
         String flash = notice.isBlank() ? "" : "<div class='notice' role='status'><span aria-hidden='true'>✓</span> " + escape(notice) + "</div>";
-        return "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><meta name='theme-color' content='#f7f8f6'><title>" + escape(title) + " · PrepPath</title><link rel='stylesheet' href='/style.css'></head><body><div class='app-shell'><aside class='sidebar'><a class='brand' href='/'><span class='brand-mark'>p</span><span>prep<span class='brand-light'>path</span><small>PLACEMENT PREP TRACKER</small></span></a><div class='nav-caption'>WORKSPACE</div><nav aria-label='Main navigation'><a class='nav-link " + ("Dashboard".equals(title) ? "active" : "") + "' href='/'><span class='nav-icon'>◫</span> Dashboard</a><a class='nav-link " + ("Study tasks".equals(title) ? "active" : "") + "' href='/tasks'><span class='nav-icon'>☷</span> Study tasks</a><a class='nav-link " + ("Goals".equals(title) ? "active" : "") + "' href='/goals'><span class='nav-icon'>◎</span> Goals</a><a class='nav-link " + ("Practice log".equals(title) ? "active" : "") + "' href='/practice'><span class='nav-icon'>↗</span> Practice log</a></nav><div class='sidebar-bottom'><div class='sidebar-note'><span class='note-spark'>✳</span><strong>Steady beats perfect.</strong><p>Small steps count. Keep showing up for yourself.</p></div><div class='profile-chip'><span class='avatar'>S</span><span><strong>Student workspace</strong><small>My preparation plan</small></span></div></div></aside><main class='main-area'><header class='topbar'><div class='mobile-brand'><span class='brand-mark'>p</span> PrepPath</div><div class='crumb'>Workspace <span>/</span> <strong>" + escape(title) + "</strong></div><div class='topbar-right'><span class='today-label'>" + LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.ENGLISH)) + "</span><form class='logout-form' method='post' action='/auth/logout'><button class='logout-button' type='submit'>Sign out</button></form><span class='top-avatar'>S</span></div></header><div class='content-wrap'>" + flash + body + "<footer class='footer'>PrepPath <span>·</span> A personal space for steady preparation</footer></div></main></div></body></html>";
+        return "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><meta name='theme-color' content='#f7f8f6'><title>" + escape(title) + " · PrepPath</title><link rel='stylesheet' href='/style.css'></head><body><div class='app-shell'><aside class='sidebar'><a class='brand' href='/'><span class='brand-mark'>p</span><span>prep<span class='brand-light'>path</span><small>PLACEMENT PREP TRACKER</small></span></a><div class='nav-caption'>WORKSPACE</div><nav aria-label='Main navigation'><a class='nav-link " + ("Dashboard".equals(title) ? "active" : "") + "' href='/'><span class='nav-icon'>◫</span> Dashboard</a><a class='nav-link " + ("Study tasks".equals(title) ? "active" : "") + "' href='/tasks'><span class='nav-icon'>☷</span> Study tasks</a><a class='nav-link " + ("Goals".equals(title) ? "active" : "") + "' href='/goals'><span class='nav-icon'>◎</span> Goals</a><a class='nav-link " + ("Practice log".equals(title) ? "active" : "") + "' href='/practice'><span class='nav-icon'>↗</span> Practice log</a><a class='nav-link " + ("Study Agent".equals(title) ? "active" : "") + "' href='/agent'><span class='nav-icon'>✳</span> Study Agent</a></nav><div class='sidebar-bottom'><div class='sidebar-note'><span class='note-spark'>✳</span><strong>Steady beats perfect.</strong><p>Small steps count. Keep showing up for yourself.</p></div><div class='profile-chip'><span class='avatar'>S</span><span><strong>Student workspace</strong><small>My preparation plan</small></span></div></div></aside><main class='main-area'><header class='topbar'><div class='mobile-brand'><span class='brand-mark'>p</span> PrepPath</div><div class='crumb'>Workspace <span>/</span> <strong>" + escape(title) + "</strong></div><div class='topbar-right'><span class='today-label'>" + LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.ENGLISH)) + "</span><form class='logout-form' method='post' action='/auth/logout'><button class='logout-button' type='submit'>Sign out</button></form><span class='top-avatar'>S</span></div></header><div class='content-wrap'>" + flash + body + "<footer class='footer'>PrepPath <span>·</span> A personal space for steady preparation</footer></div></main></div></body></html>";
     }
 
     /** Shows a friendly message and a link when a list has no entries yet. */

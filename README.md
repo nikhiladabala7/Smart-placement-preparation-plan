@@ -45,6 +45,8 @@ Anyone with the public URL can create an account. Each account gets its own trac
 - Study tasks grouped by aptitude, programming, technical subjects, coding practice, and interviews.
 - Task completion and deletion actions.
 - Practice records with category, date, score, and notes.
+- Java Study Agent that reviews open tasks, goals, and practice scores.
+- Explainable suggestions that are added only after the student approves them.
 - Account creation, sign-in, sign-out, and separate tracker files for each account.
 - Salted PBKDF2 password hashes rather than readable saved passwords.
 - Input validation and clear feedback for invalid submissions.
@@ -54,6 +56,7 @@ Anyone with the public URL can create an account. Each account gets its own trac
 ## Simple architecture
 
 - `preppath.auth`: account creation, password hashing, and credential checks.
+- `preppath.agent`: Java rules that rank focus areas and prepare suggested tasks.
 - `preppath.model`: plain Java classes for goals, study tasks, and practice records.
 - `preppath.data`: loading, saving, and sample data in `TrackerRepository`.
 - `preppath.web`: HTTP request handling, form parsing, and page rendering in `TrackerServer`.
@@ -70,7 +73,7 @@ The project report lists five students and five registration numbers. The respon
 
 | Member | Registration no. | Ownership |
 |---|---|---|
-| A. Nikhil | AP25110010962 | Dashboard and progress summary; integrate with the project coordinator |
+| A. Nikhil | AP25110010962 | Dashboard, progress summary and Study Agent; integrate with the project coordinator |
 | Sajid | AP25110010919 | Goal and study-task models, task forms, completion flow |
 | Rupesh | AP25110010331 | Practice record model, score entry, validation and performance summary |
 | Siva Manikanta | AP25110010987 | Account storage, tracker persistence and storage error handling |
@@ -80,4 +83,4 @@ The project coordinator is the student team leader and should be one of the five
 
 ## Scope note
 
-This starter is a local single-user tracker. It does not include login, cloud synchronization, email reminders, report export, or placement predictions. Those are optional future additions in the project report and are intentionally outside this simple first version.
+The Study Agent is a rule-based Java planner, not a generative AI service. It prioritizes the lowest recorded practice areas and reduces new suggestions when many tasks are already open. It explains its reasoning and waits for the student to add suggestions. The app does not include cloud synchronization, email reminders, report export, or placement predictions.
